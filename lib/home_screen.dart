@@ -18,27 +18,40 @@ class _HomeScreenState extends State<HomeScreen> {
   LatLng? lastPosition;
   final Set<Polyline> polylines = {};
   final List<LatLng> polylinePoints = [];
-  Timer? locationUpdateTimer;
+  bool isLoading = false;
 
   Future<void> getCurrentLocation() async {
-    final isGranted = await isLocationPermissionGranted();
-    if (isGranted) {
-      final isServiceEnabled = await checkGPSServiceEnable();
-      if (isServiceEnabled) {
-        Position p = await Geolocator.getCurrentPosition();
-        position = p;
-        updateMarkerAndPolyline(LatLng(p.latitude, p.longitude));
-        setState(() {});
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final isGranted = await isLocationPermissionGranted();
+      if (isGranted) {
+        final isServiceEnabled = await checkGPSServiceEnable();
+        if (isServiceEnabled) {
+          Position p = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+          );
+          position = p;
+          updateMarkerAndPolyline(LatLng(p.latitude, p.longitude));
+        } else {
+          Geolocator.openLocationSettings();
+        }
       } else {
-        Geolocator.openLocationSettings();
+        final result = await requestLocationPermission();
+        if (result) {
+          getCurrentLocation();
+        } else {
+          Geolocator.openAppSettings();
+        }
       }
-    } else {
-      final result = await requestLocationPermission();
-      if (result) {
-        getCurrentLocation();
-      } else {
-        Geolocator.openAppSettings();
-      }
+    } catch (e) {
+      print("Error getting location: $e");
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
     }
   }
 
@@ -50,7 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
         position: newPosition,
         infoWindow: InfoWindow(
           title: "My Current Location",
-          snippet: "${newPosition.latitude}, ${newPosition.longitude}",
+          snippet: "${newPosition.latitude.toStringAsFixed(6)}, ${newPosition.longitude.toStringAsFixed(6)}",
         ),
       );
 
@@ -64,14 +77,21 @@ class _HomeScreenState extends State<HomeScreen> {
           width: 5,
         );
         polylines.add(currentPolyline!);
+      } else {
+        // First location, just add the point
+        polylinePoints.add(newPosition);
       }
 
       lastPosition = newPosition;
     });
 
-    // Animate the camera to the new position
     googleMapController.animateCamera(
-      CameraUpdate.newLatLng(newPosition),
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: newPosition,
+          zoom: 16,
+        ),
+      ),
     );
   }
 
@@ -94,16 +114,11 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Start periodic location updates
-    locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      getCurrentLocation();
-    });
-    getCurrentLocation();
+
   }
 
   @override
   void dispose() {
-    locationUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -133,8 +148,14 @@ class _HomeScreenState extends State<HomeScreen> {
             bottom: 150,
             right: 5,
             child: FloatingActionButton(
-              onPressed: getCurrentLocation,
-              child: const Icon(Icons.gps_fixed),
+              onPressed: isLoading ? null : getCurrentLocation,
+              backgroundColor: isLoading ? Colors.grey : null,
+              child: isLoading
+                  ? const CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2,
+              )
+                  : const Icon(Icons.gps_fixed),
             ),
           ),
         ],
@@ -142,136 +163,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
-
-
-// import 'package:flutter/material.dart';
-// import 'package:geolocator/geolocator.dart';
-// import 'package:google_maps_flutter/google_maps_flutter.dart';
-//
-// class HomeScreen extends StatefulWidget {
-//   const HomeScreen({super.key});
-//
-//   @override
-//   State<HomeScreen> createState() => _HomeScreenState();
-// }
-//
-// class _HomeScreenState extends State<HomeScreen> {
-//
-//   late GoogleMapController googleMapController;
-//
-//   Position? position;
-//   Future<void> getCurrentLocation() async{
-//     final isGranted = await isLocationPermissionGranted();
-//     if(isGranted){
-//       final isServiceEnable = await checkGPSServiceEnable();
-//       if(isServiceEnable){
-//        Position p = await Geolocator.getCurrentPosition();
-//        position = p;
-//        setState(() {
-//
-//        });
-//       }else{
-//         Geolocator.openLocationSettings();
-//       }
-//     }else{
-//       final result = await requestLocationPermission();
-//       if(result){
-//         getCurrentLocation();
-//       }else{
-//         Geolocator.openAppSettings();
-//       }
-//     }
-//   }
-//
-//   Future<bool> isLocationPermissionGranted() async{
-//    LocationPermission permission = await Geolocator.checkPermission();
-//    if(permission == LocationPermission.always || permission==LocationPermission.whileInUse ){
-//      return true;
-//    }else{
-//      return false;
-//    }
-//   }
-//   Future<bool> requestLocationPermission() async{
-//    LocationPermission permission = await Geolocator.requestPermission();
-//    if(permission == LocationPermission.always || permission==LocationPermission.whileInUse ){
-//      return true;
-//    }else{
-//      return false;
-//    }
-//   }
-//   Future<bool> checkGPSServiceEnable()async{
-//     return await Geolocator.isLocationServiceEnabled();
-//   }
-//
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: const Text("Home"),
-//       ),
-//       body:  Stack(
-//         children: [
-//           GoogleMap(
-//             initialCameraPosition: const CameraPosition(
-//               zoom: 16,
-//               target: LatLng(22.348903360876747, 91.85110613631802),
-//             ),
-//             onTap: (LatLng? latlng) {
-//               print(latlng);
-//             },
-//             zoomControlsEnabled: true,
-//             zoomGesturesEnabled: true,
-//             onMapCreated: (GoogleMapController controller) {
-//               googleMapController = controller;
-//             },
-//             trafficEnabled: true,
-//             markers: <Marker>{
-//               const Marker(
-//                 markerId: MarkerId('initial-positions'),
-//                 position: LatLng(22.346665400938956, 91.85078356415033),
-//               ),
-//               Marker(
-//                   markerId: const MarkerId('home'),
-//                   position: const LatLng(22.352290447174607, 91.85135923326015),
-//                   infoWindow: InfoWindow(
-//                     title: "Home",
-//                     onTap: () {
-//                       print("on tap home");
-//                     },
-//                   ),
-//                   draggable: true,
-//                   onDragStart: (LatLng onStartLatLng) {
-//                     print("on start drag : $onStartLatLng");
-//                   },
-//                   onDragEnd: (LatLng onStopLatLng) {
-//                     print("on End drag : $onStopLatLng");
-//                   }),
-//             },
-//
-//           ),
-//           Positioned(
-//               bottom: 150,
-//               right: 5,
-//               child: FloatingActionButton(
-//                 onPressed: () {
-//                   googleMapController.animateCamera(
-//                     CameraUpdate.newCameraPosition(
-//                       CameraPosition(target: LatLng(22.34781678638016, 91.85232348740101),
-//                       zoom: 16)
-//                     ),
-//                   );
-//                 },
-//                 child: const Icon(Icons.gps_fixed),
-//               ))
-//         ],
-//       ),
-//     );
-//   }
-// }
-//
-//
-//
-//
-//
-//
